@@ -1,0 +1,174 @@
+﻿<Window x:Class="WpfApp1.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:WpfApp1"
+        Title="DICOM Viewer" Height="800" Width="1200"
+        Background="#e8edf5"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <local:ViewerSelectionConverter x:Key="ViewerHighlightConverter"/>
+
+        <Style x:Key="CardBorderStyle" TargetType="Border">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#90A4AE"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+
+        <Style x:Key="PanelHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#263238"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.5*" />
+            <ColumnDefinition Width="7.0*" />
+            <ColumnDefinition Width="1.5*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Column 1: Thumbnails -->
+        <StackPanel Grid.Column="0" Margin="5,10,5,0">
+            <Button Content="Open DICOM Folder"
+                    Height="40"
+                    Margin="0,0,0,10"
+                    FontWeight="Bold"
+                    Background="#B3E5FC"
+                    Foreground="#263238"
+                    Click="OpenDicomFile_Click" />
+
+            <TextBlock Text="Series Thumbnails"
+                       Style="{StaticResource PanelHeaderStyle}"
+                       Margin="0,0,0,6"/>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Height="680">
+                <ItemsControl ItemsSource="{Binding MriThumbnails}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Expander Header="{Binding SeriesDescription}"
+                                      IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                                      FontWeight="Bold"
+                                      Background="#CFEBFF"
+                                      Foreground="#263238"
+                                      Padding="5"
+                                      Margin="0,0,0,10">
+
+                                <ItemsControl ItemsSource="{Binding Thumbnails}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Vertical"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Width="100" Height="100" Margin="5"
+                                                    BorderBrush="#90A4AE" BorderThickness="1"
+                                                    CornerRadius="4" Background="Black">
+                                                <Image Source="{Binding}" Stretch="Uniform"
+                                                       MouseDown="Thumbnail_MouseDown"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </StackPanel>
+
+        <!-- Center: Left and Right Viewer -->
+        <Grid Grid.Column="1" Margin="10,70">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left Viewer -->
+            <Border Grid.Column="0" Margin="5"
+                    BorderThickness="3"
+                    Background="Black"
+                    BorderBrush="{Binding SelectedViewer, Converter={StaticResource ViewerHighlightConverter}, ConverterParameter=Left}"
+                    MouseDown="LeftViewer_MouseDown"
+                    Focusable="True"
+                    IsHitTestVisible="True"
+                    ClipToBounds="True">
+                <Viewbox Stretch="Uniform">
+                    <Grid>
+                        <Image x:Name="MainImageLeft" Stretch="None"
+                               RenderTransformOrigin="0.5,0.5"
+                               MouseWheel="MainImageLeft_MouseWheel">
+                            <Image.RenderTransform>
+                                <ScaleTransform x:Name="ScaleTransformLeft" ScaleX="1" ScaleY="1" />
+                            </Image.RenderTransform>
+                        </Image>
+
+                        <Canvas x:Name="OverlayCanvasLeft"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                IsHitTestVisible="False"
+                                Background="Transparent"
+                                Panel.ZIndex="1"/>
+                    </Grid>
+                </Viewbox>
+            </Border>
+           
+
+            <!-- Right Viewer -->
+            <Border Grid.Column="1" Margin="5"
+                    BorderThickness="3"
+                    Background="Black"
+                    BorderBrush="{Binding SelectedViewer, Converter={StaticResource ViewerHighlightConverter}, ConverterParameter=Right}"
+                    MouseDown="RightViewer_MouseDown"
+                    Focusable="True"
+                    IsHitTestVisible="True"
+                    ClipToBounds="True">
+                <Viewbox Stretch="Uniform">
+                    <Grid>
+                        <Image x:Name="MainImageRight" Stretch="None"
+                               RenderTransformOrigin="0.5,0.5"
+                               MouseWheel="MainImageRight_MouseWheel">
+                            <Image.RenderTransform>
+                                <ScaleTransform x:Name="ScaleTransformRight" ScaleX="1" ScaleY="1" />
+                            </Image.RenderTransform>
+                        </Image>
+
+                        <Canvas x:Name="OverlayCanvasRight"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                IsHitTestVisible="False"
+                                Background="Transparent"
+                                Panel.ZIndex="1"/>
+                    </Grid>
+                </Viewbox>
+            </Border>
+        </Grid>
+        
+
+        <!-- Column 3: DICOM Info -->
+        <StackPanel Grid.Column="2" Margin="10,10,0,0">
+            <Expander Header="DICOM Info"
+                      FontWeight="Bold"
+                      Background="#B3E5FC"
+                      Foreground="#263238"
+                      Padding="10"
+                      IsExpanded="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Height="620">
+                    <ItemsControl ItemsSource="{Binding DicomTags}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,5"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Expander>
+        </StackPanel>
+    </Grid>
+</Window>
+
