@@ -281,28 +281,6 @@ namespace WpfApp1
             transform.ScaleY = newScaleY;
         }
 
-        //private void Window_KeyDown(object sender, KeyEventArgs e)
-        //{
-        //    if (e.Key == Key.Up || e.Key == Key.Down)
-        //    {
-        //        if (SelectedViewer == "Left" && leftSeries != null)
-        //        {
-        //            leftImageIndex += (e.Key == Key.Up ? 1 : -1);
-        //            leftImageIndex = Math.Max(0, Math.Min(leftImageIndex, leftSeries.Thumbnails.Count - 1));
-        //            MainImageLeft.Source = leftSeries.Thumbnails[leftImageIndex];
-        //            LoadDicomTags(leftSeries.ImagePaths[leftImageIndex]);
-        //            UpdateCrossReferenceLines();
-        //        }
-        //        else if (SelectedViewer == "Right" && rightSeries != null)
-        //        {
-        //            rightImageIndex += (e.Key == Key.Up ? 1 : -1);
-        //            rightImageIndex = Math.Max(0, Math.Min(rightImageIndex, rightSeries.Thumbnails.Count - 1));
-        //            MainImageRight.Source = rightSeries.Thumbnails[rightImageIndex];
-        //            LoadDicomTags(rightSeries.ImagePaths[rightImageIndex]);
-        //            UpdateCrossReferenceLines();
-        //        }
-        //    }
-        //}
         private bool AreVectorsOrthogonal(Vector3D a, Vector3D b)
         {
             double dot = Vector3D.Dot(a, b);
@@ -373,17 +351,6 @@ namespace WpfApp1
             if (double.IsNaN(clampedX) || double.IsInfinity(clampedX) ||
                 double.IsNaN(clampedY) || double.IsInfinity(clampedY))
                 return;
-
-            // Draw vertical and horizontal lines at the projected position
-            var horizontal = new Line
-            {
-                X1 = 0,
-                Y1 = clampedY,
-                X2 = targetCanvas.ActualWidth,
-                Y2 = clampedY,
-                Stroke = Brushes.LimeGreen,
-                StrokeThickness = 2
-            };
 
             var vertical = new Line
             {
