@@ -82,15 +82,19 @@
             </ScrollViewer>
         </StackPanel>
 
-        <!-- Center: Left and Right Viewer -->
+        <!-- Center: Left and Right Viewer with Buttons -->
         <Grid Grid.Column="1" Margin="10,70">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
             <!-- Left Viewer -->
-            <Border Grid.Column="0" Margin="5"
+            <Border Grid.Column="0" Grid.Row="0" Margin="5"
                     BorderThickness="3"
                     Background="Black"
                     BorderBrush="{Binding SelectedViewer, Converter={StaticResource ViewerHighlightConverter}, ConverterParameter=Left}"
@@ -107,7 +111,6 @@
                                 <ScaleTransform x:Name="ScaleTransformLeft" ScaleX="1" ScaleY="1" />
                             </Image.RenderTransform>
                         </Image>
-
                         <Canvas x:Name="OverlayCanvasLeft"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
@@ -117,10 +120,9 @@
                     </Grid>
                 </Viewbox>
             </Border>
-           
 
             <!-- Right Viewer -->
-            <Border Grid.Column="1" Margin="5"
+            <Border Grid.Column="1" Grid.Row="0" Margin="5"
                     BorderThickness="3"
                     Background="Black"
                     BorderBrush="{Binding SelectedViewer, Converter={StaticResource ViewerHighlightConverter}, ConverterParameter=Right}"
@@ -137,7 +139,6 @@
                                 <ScaleTransform x:Name="ScaleTransformRight" ScaleX="1" ScaleY="1" />
                             </Image.RenderTransform>
                         </Image>
-
                         <Canvas x:Name="OverlayCanvasRight"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
@@ -147,8 +148,24 @@
                     </Grid>
                 </Viewbox>
             </Border>
+
+            <!-- Buttons below viewers -->
+            <StackPanel Grid.Row="1" Grid.ColumnSpan="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Margin="0,10,0,0">
+                <Button Content="Cross Referencing"
+                        Width="150"
+                        Height="35"
+                        Margin="5"
+                        Click="CrossReferenceButton_Click"/>
+                <Button Content="FOV"
+                        Width="150"
+                        Height="35"
+                        Margin="5"
+                        Click="FovButton_Click"/>
+            </StackPanel>
         </Grid>
-        
 
         <!-- Column 3: DICOM Info -->
         <StackPanel Grid.Column="2" Margin="10,10,0,0">

@@ -14,7 +14,6 @@ namespace WpfApp1
         {
             string selected = value as string;
             string target = parameter as string;
-
             return selected == target ? Blue : Gray;
         }
 

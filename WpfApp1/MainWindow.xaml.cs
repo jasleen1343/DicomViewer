@@ -28,15 +28,15 @@ namespace WpfApp1
         private SeriesThumbnailGroup leftSeries;
         private SeriesThumbnailGroup rightSeries;
 
+        private bool _isCrossReferenceActive = false;
+        private bool _isFovActive = false;
+
         public MainWindow()
         {
             InitializeComponent();
             MriThumbnails = new ObservableCollection<SeriesThumbnailGroup>();
             this.DataContext = this;
         }
-       
-
-        
 
         private void OpenDicomFile_Click(object sender, RoutedEventArgs e)
         {
@@ -52,8 +52,7 @@ namespace WpfApp1
         {
             MriThumbnails.Clear();
             var allFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories)
-                .Where(f => f.EndsWith(".dcm", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(System.IO.Path.GetExtension(f))
-)
+                .Where(f => f.EndsWith(".dcm", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(PathIO.GetExtension(f)))
                 .ToList();
 
             var seriesDict = new Dictionary<string, SeriesThumbnailGroup>();
@@ -68,7 +67,6 @@ namespace WpfApp1
                     string seriesUID = dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "UnknownSeries");
                     string seriesDesc = dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, $"Series {seriesUID}");
 
-                    // Read essential geometry
                     if (!dataset.TryGetValues(DicomTag.ImageOrientationPatient, out double[] iop) || iop.Length < 6) continue;
                     if (!dataset.TryGetValues(DicomTag.ImagePositionPatient, out double[] ipp) || ipp.Length < 3) continue;
                     if (!dataset.TryGetValues(DicomTag.PixelSpacing, out double[] spacing) || spacing.Length < 2) continue;
@@ -79,17 +77,8 @@ namespace WpfApp1
 
                     if (!seriesDict.TryGetValue(seriesUID, out var group))
                     {
-                        var orientation = dicomFile.Dataset.GetValues<double>(DicomTag.ImageOrientationPatient);
-                        var row = new Vector3D(orientation[0], orientation[1], orientation[2]);
-                        var col = new Vector3D(orientation[3], orientation[4], orientation[5]);
-                        var normal = Vector3D.Cross(row, col);
-
-                        var spacingValues = dicomFile.Dataset.GetValues<double>(DicomTag.PixelSpacing);
-                        double spacingX = spacingValues[0];
-                        double spacingY = spacingValues[1];
-
-                        int width = dicomFile.Dataset.GetSingleValue<int>(DicomTag.Columns);
-                        int height = dicomFile.Dataset.GetSingleValue<int>(DicomTag.Rows);
+                        int width = dataset.GetSingleValue<int>(DicomTag.Columns);
+                        int height = dataset.GetSingleValue<int>(DicomTag.Rows);
 
                         group = new SeriesThumbnailGroup
                         {
@@ -101,8 +90,8 @@ namespace WpfApp1
                             ImageOrigins = new List<Vector3D>(),
                             RowDirection = rowDir,
                             ColDirection = colDir,
-                            PixelSpacingX = spacingX,
-                            PixelSpacingY = spacingY,
+                            PixelSpacingX = spacing[0],
+                            PixelSpacingY = spacing[1],
                             Width = width,
                             Height = height
                         };
@@ -116,7 +105,6 @@ namespace WpfApp1
                 }
                 catch
                 {
-                    // Skip corrupt or unreadable files
                     continue;
                 }
             }
@@ -129,25 +117,18 @@ namespace WpfApp1
                     {
                         series.Thumbnails.Add(ConvertDicomToBitmapImage(path));
                     }
-                    catch
-                    {
-                        // Skip if thumbnail can't be created
-                        continue;
-                    }
+                    catch { continue; }
                 }
 
                 MriThumbnails.Add(series);
             }
         }
 
-
         private static double GetSliceLocation(DicomFile file)
         {
             var pos = file.Dataset.GetValues<double>(DicomTag.ImagePositionPatient);
             return pos.Length >= 3 ? pos[2] : 0;
         }
-
-       
 
         private BitmapImage ConvertDicomToBitmapImage(string filePath)
         {
@@ -179,12 +160,10 @@ namespace WpfApp1
 
         private void Thumbnail_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is System.Windows.Controls.Image image &&
-                image.Source is BitmapImage bitmap)
+            if (sender is Image image && image.Source is BitmapImage bitmap)
             {
                 var clickedSeries = MriThumbnails
-                    .SelectMany(group => group.Thumbnails
-                        .Select((thumb, index) => new { group, thumb, index }))
+                    .SelectMany(group => group.Thumbnails.Select((thumb, index) => new { group, thumb, index }))
                     .FirstOrDefault(x => x.thumb == bitmap);
 
                 if (clickedSeries != null)
@@ -194,27 +173,21 @@ namespace WpfApp1
                         MainImageLeft.Source = bitmap;
                         leftImageIndex = clickedSeries.index;
                         leftSeries = clickedSeries.group;
-
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            UpdateCrossReferenceLines();
-                        }), System.Windows.Threading.DispatcherPriority.Loaded);
                     }
                     else if (SelectedViewer == "Right")
                     {
                         MainImageRight.Source = bitmap;
                         rightImageIndex = clickedSeries.index;
                         rightSeries = clickedSeries.group;
-
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            UpdateCrossReferenceLines();
-                        }), System.Windows.Threading.DispatcherPriority.Loaded);
                     }
-
 
                     string filePath = clickedSeries.group.ImagePaths[clickedSeries.index];
                     LoadDicomTags(filePath);
+
+                    if (_isCrossReferenceActive)
+                        UpdateCrossReferenceLines();
+                    else if (_isFovActive)
+                        UpdateFovOverlay();
                 }
             }
         }
@@ -284,7 +257,43 @@ namespace WpfApp1
         private bool AreVectorsOrthogonal(Vector3D a, Vector3D b)
         {
             double dot = Vector3D.Dot(a, b);
-            return Math.Abs(dot) < 0.05; // Adjust threshold if needed
+            return Math.Abs(dot) < 0.05;
+        }
+
+        private bool AreVectorsApproximatelyEqual(Vector3D a, Vector3D b, double tolerance = 0.01)
+        {
+            var dx = a.X - b.X;
+            var dy = a.Y - b.Y;
+            var dz = a.Z - b.Z;
+            return dx * dx + dy * dy + dz * dz < tolerance * tolerance;
+        }
+
+        private void CrossReferenceButton_Click(object sender, RoutedEventArgs e)
+        {
+            _isCrossReferenceActive = !_isCrossReferenceActive;
+            _isFovActive = false;
+
+            ClearOverlays();
+
+            if (_isCrossReferenceActive)
+                UpdateCrossReferenceLines();
+        }
+
+        private void FovButton_Click(object sender, RoutedEventArgs e)
+        {
+            _isFovActive = !_isFovActive;
+            _isCrossReferenceActive = false;
+
+            ClearOverlays();
+
+            if (_isFovActive)
+                UpdateFovOverlay();
+        }
+
+        private void ClearOverlays()
+        {
+            OverlayCanvasLeft.Children.Clear();
+            OverlayCanvasRight.Children.Clear();
         }
 
         private void UpdateCrossReferenceLines()
@@ -297,28 +306,24 @@ namespace WpfApp1
             var normalLeft = leftSeries.SliceNormal;
             var normalRight = rightSeries.SliceNormal;
 
-            // If planes are the same → skip
             if (AreVectorsApproximatelyEqual(normalLeft, normalRight))
                 return;
 
-            // If not orthogonal → skip
             if (!AreVectorsOrthogonal(normalLeft, normalRight))
                 return;
 
-            // Now draw cross-reference lines on BOTH viewers
             DrawCrossReferenceLine("Left", leftSeries, rightSeries, leftImageIndex, OverlayCanvasRight);
             DrawCrossReferenceLine("Right", rightSeries, leftSeries, rightImageIndex, OverlayCanvasLeft);
         }
 
         private void DrawCrossReferenceLine(
-    string viewer,
-    SeriesThumbnailGroup sourceSeries,
-    SeriesThumbnailGroup targetSeries,
-    int sourceIndex,
-    Canvas targetCanvas)
+            string viewer,
+            SeriesThumbnailGroup sourceSeries,
+            SeriesThumbnailGroup targetSeries,
+            int sourceIndex,
+            Canvas targetCanvas)
         {
             if (sourceSeries.ImageOrigins.Count <= sourceIndex) return;
-            if (targetSeries.ImageOrigins.Count == 0) return;
 
             var originA = sourceSeries.ImageOrigins[sourceIndex];
             var rowA = sourceSeries.RowDirection;
@@ -335,48 +340,84 @@ namespace WpfApp1
             var normalB = targetSeries.SliceNormal;
             var rowB = targetSeries.RowDirection;
             var colB = targetSeries.ColDirection;
-            var spacingXB = targetSeries.PixelSpacingX;
-            var spacingYB = targetSeries.PixelSpacingY;
 
             Vector3D diff = pointA - originB;
             double d = Vector3D.Dot(diff, normalB);
             Vector3D projected = pointA - normalB * d;
 
-            double x = Vector3D.Dot(projected - originB, rowB) / spacingXB;
-            double y = Vector3D.Dot(projected - originB, colB) / spacingYB;
-
-            double clampedX = Math.Max(0, Math.Min(targetCanvas.ActualWidth, x));
-            double clampedY = Math.Max(0, Math.Min(targetCanvas.ActualHeight, y));
-
-            if (double.IsNaN(clampedX) || double.IsInfinity(clampedX) ||
-                double.IsNaN(clampedY) || double.IsInfinity(clampedY))
-                return;
+            double x = Vector3D.Dot(projected - originB, rowB) / targetSeries.PixelSpacingX;
+            double y = Vector3D.Dot(projected - originB, colB) / targetSeries.PixelSpacingY;
 
             var vertical = new Line
             {
-                X1 = clampedX,
+                X1 = x,
                 Y1 = 0,
-                X2 = clampedX,
+                X2 = x,
                 Y2 = targetCanvas.ActualHeight,
                 Stroke = Brushes.LimeGreen,
                 StrokeThickness = 2
             };
 
-            
             targetCanvas.Children.Add(vertical);
         }
 
-
-        private bool AreVectorsApproximatelyEqual(Vector3D a, Vector3D b, double tolerance = 0.01)
+        private void UpdateFovOverlay()
         {
-            var dx = a.X - b.X;
-            var dy = a.Y - b.Y;
-            var dz = a.Z - b.Z;
+            OverlayCanvasLeft.Children.Clear();
+            OverlayCanvasRight.Children.Clear();
 
-            var distanceSquared = dx * dx + dy * dy + dz * dz;
-            return distanceSquared < tolerance * tolerance;
+            if (leftSeries == null || rightSeries == null) return;
+
+            DrawFovRectangle(leftSeries, leftImageIndex, rightSeries, OverlayCanvasRight);
         }
 
+        private void DrawFovRectangle(
+            SeriesThumbnailGroup sourceSeries,
+            int sourceIndex,
+            SeriesThumbnailGroup targetSeries,
+            Canvas targetCanvas)
+        {
+            if (sourceSeries.ImageOrigins.Count <= sourceIndex) return;
+
+            var originA = sourceSeries.ImageOrigins[sourceIndex];
+            var rowA = sourceSeries.RowDirection;
+            var colA = sourceSeries.ColDirection;
+            var spacingX = sourceSeries.PixelSpacingX;
+            var spacingY = sourceSeries.PixelSpacingY;
+            int w = sourceSeries.Width;
+            int h = sourceSeries.Height;
+
+            var corners = new[]
+            {
+                originA,
+                originA + rowA * spacingX * w,
+                originA + rowA * spacingX * w + colA * spacingY * h,
+                originA + colA * spacingY * h
+            };
+
+            var points = new List<Point>();
+
+            foreach (var pt in corners)
+            {
+                var diff = pt - targetSeries.ImageOrigins[0];
+                double d = Vector3D.Dot(diff, targetSeries.SliceNormal);
+                var projected = pt - targetSeries.SliceNormal * d;
+
+                double x = Vector3D.Dot(projected - targetSeries.ImageOrigins[0], targetSeries.RowDirection) / targetSeries.PixelSpacingX;
+                double y = Vector3D.Dot(projected - targetSeries.ImageOrigins[0], targetSeries.ColDirection) / targetSeries.PixelSpacingY;
+
+                points.Add(new Point(x, y));
+            }
+
+            var polygon = new Polygon
+            {
+                Stroke = Brushes.Red,
+                StrokeThickness = 2,
+                Points = new PointCollection(points)
+            };
+
+            targetCanvas.Children.Add(polygon);
+        }
 
         public class SeriesThumbnailGroup : INotifyPropertyChanged
         {
@@ -385,18 +426,14 @@ namespace WpfApp1
             public List<string> ImagePaths { get; set; }
             public ObservableCollection<BitmapImage> Thumbnails { get; set; }
             public List<double> SlicePositions { get; set; }
-            public Vector3D Orientation { get; set; }
-            public bool IsAxial { get; set; }
-            public List<Vector3D> ImageOrigins { get; set; } = new(); // ImagePositionPatient
-            public Vector3D RowDirection { get; set; } // Orientation Row
-            public Vector3D ColDirection { get; set; } // Orientation Column
+            public List<Vector3D> ImageOrigins { get; set; } = new();
+            public Vector3D RowDirection { get; set; }
+            public Vector3D ColDirection { get; set; }
             public Vector3D SliceNormal => Vector3D.Cross(RowDirection, ColDirection);
             public double PixelSpacingX { get; set; }
             public double PixelSpacingY { get; set; }
             public int Width { get; set; }
             public int Height { get; set; }
-
-            
 
             private bool isExpanded;
             public bool IsExpanded
@@ -445,6 +482,6 @@ namespace WpfApp1
                     a.X * b.Y - a.Y * b.X
                 );
         }
-
     }
 }
+
