@@ -19,6 +19,10 @@ namespace WpfApp1
 {
     public partial class MainWindow : Window
     {
+        private double leftZoom = 1.0;
+        private double rightZoom = 1.0;
+
+        public double SliceThickness { get; set; }
         public ObservableCollection<SeriesThumbnailGroup> MriThumbnails { get; set; }
         public string SelectedViewer { get; set; } = "None";
         public ObservableCollection<string> DicomTags { get; set; } = new ObservableCollection<string>();
@@ -63,7 +67,7 @@ namespace WpfApp1
                 {
                     var dicomFile = DicomFile.Open(file);
                     var dataset = dicomFile.Dataset;
-
+                    
                     string seriesUID = dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "UnknownSeries");
                     string seriesDesc = dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, $"Series {seriesUID}");
 
@@ -79,6 +83,7 @@ namespace WpfApp1
                     {
                         int width = dataset.GetSingleValue<int>(DicomTag.Columns);
                         int height = dataset.GetSingleValue<int>(DicomTag.Rows);
+                        double thickness = dataset.GetSingleValueOrDefault(DicomTag.SliceThickness, 1.0);
 
                         group = new SeriesThumbnailGroup
                         {
@@ -93,7 +98,8 @@ namespace WpfApp1
                             PixelSpacingX = spacing[0],
                             PixelSpacingY = spacing[1],
                             Width = width,
-                            Height = height
+                            Height = height,
+                            SliceThickness = thickness
                         };
 
                         seriesDict[seriesUID] = group;
@@ -130,6 +136,65 @@ namespace WpfApp1
             return pos.Length >= 3 ? pos[2] : 0;
         }
 
+        private void DrawFOVBox( SeriesThumbnailGroup sourceSeries,int sourceSliceIndex,SeriesThumbnailGroup targetSeries,Canvas targetCanvas)
+        {
+            // Clear any previous drawings
+            targetCanvas.Children.Clear();
+
+            // Determine zoom
+            double zoom = targetCanvas == OverlayCanvasLeft ? leftZoom : rightZoom;
+
+            // Loop over all slices
+            for (int i = 0; i < sourceSeries.ImageOrigins.Count; i++)
+            {
+                var origin = sourceSeries.ImageOrigins[i];
+                var row = sourceSeries.RowDirection;
+                var col = sourceSeries.ColDirection;
+
+                double width = sourceSeries.Width;
+                double height = sourceSeries.Height;
+
+                var c1 = origin;
+                var c2 = origin + row * sourceSeries.PixelSpacingX * width;
+                var c3 = c2 + col * sourceSeries.PixelSpacingY * height;
+                var c4 = origin + col * sourceSeries.PixelSpacingY * height;
+
+                // Project corners
+                Point p1 = ProjectToViewer(targetSeries, c1);
+                Point p2 = ProjectToViewer(targetSeries, c2);
+                Point p3 = ProjectToViewer(targetSeries, c3);
+                Point p4 = ProjectToViewer(targetSeries, c4);
+
+                // Apply zoom scaling
+                p1 = new Point(p1.X * zoom, p1.Y * zoom);
+                p2 = new Point(p2.X * zoom, p2.Y * zoom);
+                p3 = new Point(p3.X * zoom, p3.Y * zoom);
+                p4 = new Point(p4.X * zoom, p4.Y * zoom);
+
+                // Highlight selected slice
+                Brush brush = i == sourceSliceIndex ? Brushes.Red : Brushes.LimeGreen;
+
+                var polygon = new Polygon
+                {
+                    Points = new PointCollection { p1, p2, p3, p4 },
+                    Stroke = brush,
+                    StrokeThickness = 2,
+                    Fill = null
+                };
+                targetCanvas.Children.Add(polygon);
+            }
+        }
+
+        private Point ProjectToViewer(SeriesThumbnailGroup targetSeries, Vector3D point)
+        {
+            var vector = point - targetSeries.ImageOrigins[0];
+            double x = Vector3D.Dot(vector, targetSeries.RowDirection) / targetSeries.PixelSpacingX;
+            double y = Vector3D.Dot(vector, targetSeries.ColDirection) / targetSeries.PixelSpacingY;
+            x = Math.Max(0, Math.Min(OverlayCanvasRight.ActualWidth, x));
+            y = Math.Max(0, Math.Min(OverlayCanvasRight.ActualHeight, y));
+            return new Point(x, y);
+        }
+
         private BitmapImage ConvertDicomToBitmapImage(string filePath)
         {
             var dicomImage = new DicomImage(filePath);
@@ -157,6 +222,7 @@ namespace WpfApp1
             bmp.Freeze();
             return bmp;
         }
+
 
         private void Thumbnail_MouseDown(object sender, MouseButtonEventArgs e)
         {
@@ -252,6 +318,17 @@ namespace WpfApp1
 
             transform.ScaleX = newScaleX;
             transform.ScaleY = newScaleY;
+
+            if (transform == ScaleTransformLeft)
+                leftZoom = newScaleX;
+            else if (transform == ScaleTransformRight)
+                rightZoom = newScaleX;
+
+            if (_isCrossReferenceActive)
+                UpdateCrossReferenceLines();
+            else if (_isFovActive)
+                UpdateFovOverlay();
+
         }
 
         private bool AreVectorsOrthogonal(Vector3D a, Vector3D b)
@@ -348,76 +425,35 @@ namespace WpfApp1
             double x = Vector3D.Dot(projected - originB, rowB) / targetSeries.PixelSpacingX;
             double y = Vector3D.Dot(projected - originB, colB) / targetSeries.PixelSpacingY;
 
+            double zoom = viewer == "Left" ? leftZoom : rightZoom;
+
             var vertical = new Line
             {
-                X1 = x,
+                X1 = x * zoom,
                 Y1 = 0,
-                X2 = x,
-                Y2 = targetCanvas.ActualHeight,
+                X2 = x * zoom,
+                Y2 = targetCanvas.ActualHeight * zoom,
                 Stroke = Brushes.LimeGreen,
                 StrokeThickness = 2
             };
+
 
             targetCanvas.Children.Add(vertical);
         }
 
         private void UpdateFovOverlay()
         {
-            OverlayCanvasLeft.Children.Clear();
             OverlayCanvasRight.Children.Clear();
+            OverlayCanvasLeft.Children.Clear();
 
-            if (leftSeries == null || rightSeries == null) return;
-
-            DrawFovRectangle(leftSeries, leftImageIndex, rightSeries, OverlayCanvasRight);
-        }
-
-        private void DrawFovRectangle(
-            SeriesThumbnailGroup sourceSeries,
-            int sourceIndex,
-            SeriesThumbnailGroup targetSeries,
-            Canvas targetCanvas)
-        {
-            if (sourceSeries.ImageOrigins.Count <= sourceIndex) return;
-
-            var originA = sourceSeries.ImageOrigins[sourceIndex];
-            var rowA = sourceSeries.RowDirection;
-            var colA = sourceSeries.ColDirection;
-            var spacingX = sourceSeries.PixelSpacingX;
-            var spacingY = sourceSeries.PixelSpacingY;
-            int w = sourceSeries.Width;
-            int h = sourceSeries.Height;
-
-            var corners = new[]
+            if (leftSeries != null && rightSeries != null)
             {
-                originA,
-                originA + rowA * spacingX * w,
-                originA + rowA * spacingX * w + colA * spacingY * h,
-                originA + colA * spacingY * h
-            };
-
-            var points = new List<Point>();
-
-            foreach (var pt in corners)
-            {
-                var diff = pt - targetSeries.ImageOrigins[0];
-                double d = Vector3D.Dot(diff, targetSeries.SliceNormal);
-                var projected = pt - targetSeries.SliceNormal * d;
-
-                double x = Vector3D.Dot(projected - targetSeries.ImageOrigins[0], targetSeries.RowDirection) / targetSeries.PixelSpacingX;
-                double y = Vector3D.Dot(projected - targetSeries.ImageOrigins[0], targetSeries.ColDirection) / targetSeries.PixelSpacingY;
-
-                points.Add(new Point(x, y));
+                DrawFOVBox(leftSeries, leftImageIndex, rightSeries, OverlayCanvasRight);
             }
 
-            var polygon = new Polygon
-            {
-                Stroke = Brushes.Red,
-                StrokeThickness = 2,
-                Points = new PointCollection(points)
-            };
-
-            targetCanvas.Children.Add(polygon);
         }
+
+        
 
         public class SeriesThumbnailGroup : INotifyPropertyChanged
         {
@@ -434,6 +470,8 @@ namespace WpfApp1
             public double PixelSpacingY { get; set; }
             public int Width { get; set; }
             public int Height { get; set; }
+
+            public double SliceThickness { get; set; }
 
             private bool isExpanded;
             public bool IsExpanded
