@@ -19,6 +19,9 @@ namespace WpfApp1
 {
     public partial class MainWindow : Window
     {
+        private MatrixTransform leftTransform = new MatrixTransform();
+        private MatrixTransform rightTransform = new MatrixTransform();
+
         private double leftZoom = 1.0;
         private double rightZoom = 1.0;
 
@@ -38,6 +41,8 @@ namespace WpfApp1
         public MainWindow()
         {
             InitializeComponent();
+            LeftImageContainer.RenderTransform = leftTransform;
+            RightImageContainer.RenderTransform = rightTransform;
             MriThumbnails = new ObservableCollection<SeriesThumbnailGroup>();
             this.DataContext = this;
         }
@@ -54,7 +59,19 @@ namespace WpfApp1
 
         private void LoadDicomSeries(string folderPath)
         {
+            MainImageLeft.Source = null;
+            MainImageRight.Source = null;
+            DicomTags.Clear();
             MriThumbnails.Clear();
+            leftImageIndex = 0;
+            rightImageIndex = 0;
+            leftSeries = null;
+            rightSeries = null;
+            ClearOverlays();
+            leftTransform.Matrix = Matrix.Identity;
+            rightTransform.Matrix = Matrix.Identity;
+            leftZoom = 1.0;
+            rightZoom = 1.0;
             var allFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories)
                 .Where(f => f.EndsWith(".dcm", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(PathIO.GetExtension(f)))
                 .ToList();
@@ -298,38 +315,15 @@ namespace WpfApp1
 
         private void MainImageLeft_MouseWheel(object sender, MouseWheelEventArgs e)
         {
-            double zoomDelta = e.Delta > 0 ? 0.1 : -0.1;
-            ZoomImage(ScaleTransformLeft, zoomDelta);
+            ZoomImage(leftTransform, LeftImageContainer, e);
         }
 
         private void MainImageRight_MouseWheel(object sender, MouseWheelEventArgs e)
         {
-            double zoomDelta = e.Delta > 0 ? 0.1 : -0.1;
-            ZoomImage(ScaleTransformRight, zoomDelta);
+            ZoomImage(rightTransform, RightImageContainer, e);
         }
 
-        private void ZoomImage(ScaleTransform transform, double delta)
-        {
-            double newScaleX = transform.ScaleX + delta;
-            double newScaleY = transform.ScaleY + delta;
-
-            newScaleX = Math.Max(0.1, Math.Min(5.0, newScaleX));
-            newScaleY = Math.Max(0.1, Math.Min(5.0, newScaleY));
-
-            transform.ScaleX = newScaleX;
-            transform.ScaleY = newScaleY;
-
-            if (transform == ScaleTransformLeft)
-                leftZoom = newScaleX;
-            else if (transform == ScaleTransformRight)
-                rightZoom = newScaleX;
-
-            if (_isCrossReferenceActive)
-                UpdateCrossReferenceLines();
-            else if (_isFovActive)
-                UpdateFovOverlay();
-
-        }
+        
 
         private bool AreVectorsOrthogonal(Vector3D a, Vector3D b)
         {
@@ -453,7 +447,23 @@ namespace WpfApp1
 
         }
 
-        
+        private void ZoomImage(MatrixTransform transform, UIElement container, MouseWheelEventArgs e)
+        {
+            // Get current matrix
+            Matrix matrix = transform.Matrix;
+
+            // Determine zoom factor
+            double zoom = e.Delta > 0 ? 1.2 : 1 / 1.2;
+
+            // Mouse position relative to container
+            Point mousePos = e.GetPosition(container);
+
+            // Scale around mouse position
+            matrix.ScaleAt(zoom, zoom, mousePos.X, mousePos.Y);
+
+            // Apply updated matrix
+            transform.Matrix = matrix;
+        }
 
         public class SeriesThumbnailGroup : INotifyPropertyChanged
         {
